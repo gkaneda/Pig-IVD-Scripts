@@ -1,0 +1,477 @@
+---
+title: "CellChat Analysis Script"
+format: html
+editor: visual
+---
+
+All packages required for script to run.
+
+```{r}
+#| echo: false
+#if (!require("BiocManager", quietly = TRUE))
+#install.packages("BiocManager")
+#BiocManager::install("Seurat", force = TRUE)
+#install.packages("remotes")
+#install.packages("R.utils")
+#remotes::install_github("satijalab/seurat-wrappers")
+#BiocManager::install(c('BiocGenerics', 'DelayedArray', 'DelayedMatrixStats',
+#                       'limma', 'lme4', 'S4Vectors', 'SingleCellExperiment',
+#                       'SummarizedExperiment', 'batchelor', 'HDF5Array',
+#                       'terra', 'ggrastr'))
+#install.packages("devtools")
+#devtools::install_github('cole-trapnell-lab/monocle3')
+#BiocManager::install("EnhancedVolcano", force = TRUE)
+#BiocManager::install("ComplexHeatmap")
+#devtools::install_github("jinworks/CellChat")
+#install.packages("NMF")
+
+library(Seurat)
+library(SeuratWrappers)
+library(patchwork)
+library(dplyr)
+library(ggplot2)
+library(monocle3)
+library(Matrix)
+library(EnhancedVolcano)
+library (ggrepel)
+library(RColorBrewer)
+library(ComplexHeatmap)
+library(CellChat)
+library(NMF)
+library(ggalluvial)
+library(reticulate)
+library(gridExtra)
+
+#if GK Laptop
+#setwd("C:/Users/gkane/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/5. CellChat")
+
+#if BIRI super computer
+setwd("C:/Users/kanedag/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/5. CellChat")
+
+```
+
+```{r Run CellChat}
+AllData.int@meta.data$seurat_clusters_adjusted <- as.factor(paste0('C', AllData.int@meta.data$seurat_clusters))
+
+data.matrix <- GetAssayData(AllData.int, assay = "RNA", slot = "data")
+cellchat <- createCellChat(object = data.matrix, meta = AllData.int@meta.data, group = "seurat_clusters_adjusted")
+cellchat@DB <- CellChatDB.human
+
+cellchat <- subsetData(cellchat)
+future::plan("multisession", workers = 4)
+cellchat <- identifyOverExpressedGenes(cellchat)
+cellchat <- identifyOverExpressedInteractions(cellchat)
+
+# Compute communication probability
+# Disable parallel processing if you get allocation error using 'future::plan("sequential")'
+options(future.globals.maxSize = 2000 * 1024^2) #only for supercomputers
+cellchat <- computeCommunProb(cellchat, type = "triMean")
+cellchat <- filterCommunication(cellchat, min.cells = 10)
+
+#df.cell <- subsetCommunication(cellchat)
+#df.group <- subsetCommunication(cellchat, sources.use = c(1,2), targets.use = c(4,5))
+#df.path <- subsetCommunication(cellchat, signaling = c("COL2A1", "ACAN"))
+
+cellchat <- computeCommunProbPathway(cellchat)
+cellchat <- aggregateNet(cellchat)
+cellchat <- netAnalysis_computeCentrality(cellchat, slot.name = "netP")
+
+groupSize <- as.numeric(table(cellchat@idents))
+
+netVisual_circle(cellchat@net$count, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Number of interactions")
+netVisual_circle(cellchat@net$weight, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Interaction weights/strength")
+
+```
+
+```{r Visualize CellChat Data}
+
+png("~/number_of_interactions.png", width = 800, height = 600)
+netVisual_circle(cellchat@net$count, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Number of interactions")
+dev.off()
+
+png("~/interaction_weights_strength.png", width = 800, height = 600)
+netVisual_circle(cellchat@net$weight, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Interaction weights/strength")
+dev.off()
+
+#plot individual weights
+mat <- cellchat@net$weight
+for (i in 1:nrow(mat)) {
+  filename <- sprintf("~/weightplot_%s.png", rownames(mat)[i])
+  png(filename, width = 800, height = 600)
+  mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat2[i, ] <- mat[i, ]
+  netVisual_circle(mat2, vertex.weight = groupSize, weight.scale = TRUE, edge.weight.max = max(mat), title.name = rownames(mat)[i])
+  dev.off()
+}
+
+#plot individual interaction
+mat <- cellchat@net$count
+for (i in 1:nrow(mat)) {
+  filename <- sprintf("~/interactionplot_%s.png", rownames(mat)[i])
+  png(filename, width = 800, height = 600)
+  mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat2[i, ] <- mat[i, ]
+  netVisual_circle(mat2, vertex.weight = groupSize, weight.scale = TRUE, edge.weight.max = max(mat), title.name = rownames(mat)[i])
+  dev.off()
+}
+
+gg1 <- netAnalysis_signalingRole_scatter(cellchat)
+ggsave(filename = "signaling_role_scatter_plot.png", plot = gg1, width = 10, height = 8, dpi = 300)
+
+ht1 <- netAnalysis_signalingRole_heatmap(cellchat, pattern = "outgoing")
+ht2 <- netAnalysis_signalingRole_heatmap(cellchat, pattern = "incoming")
+ht1 + ht2
+
+png("incoming_heatmap.png", width = 8, height = 8, units = "in", res = 300)
+draw(ht1)
+dev.off()
+
+png("outgoing_heatmap.png", width = 8, height = 8, units = "in", res = 300)
+draw(ht2)
+dev.off()
+
+netVisual_bubble(cellchat, sources.use = 22, targets.use = c(5:11), remove.isolate = FALSE)
+
+pathways.show.all <- cellchat@netP$pathways
+for (pathway_name in pathways.show.all) {
+   filename <- sprintf("~/pathway_%s.png", pathway_name)
+   png(filename, width = 800, height = 600)
+   netVisual_aggregate(cellchat, signaling = pathway_name, layout = "chord")
+   dev.off()
+}
+
+out.K <- selectK(cellchat, pattern = "outgoing")
+nPatterns = 5
+cellchat <- identifyCommunicationPatterns(cellchat, pattern = "outgoing", k = nPatterns)
+
+riv.out <- netAnalysis_river(cellchat, pattern = "outgoing")
+ggsave("outgoing_river_plot.png", plot = riv.out, width = 10, height = 8, units = "in", dpi = 300)
+dot.out <- netAnalysis_dot(cellchat, pattern = "outgoing")
+ggsave("outgoing_dot_plot.png", plot = dot.out, width = 10, height = 8, units = "in", dpi = 300)
+
+in.K <- selectK(cellchat, pattern = "incoming")
+nPatterns = 3
+cellchat <- identifyCommunicationPatterns(cellchat, pattern = "incoming", k = nPatterns)
+riv.in <- netAnalysis_river(cellchat, pattern = "incoming")
+ggsave("incoming_river_plot.png", plot = riv.in, width = 10, height = 8, units = "in", dpi = 300)
+dot.in <- netAnalysis_dot(cellchat, pattern = "incoming")
+ggsave("incoming_dot_plot.png", plot = dot.in, width = 10, height = 8, units = "in", dpi = 300)
+
+
+cellchat <- computeNetSimilarity(cellchat, type = "functional")
+cellchat <- netEmbedding(cellchat, type = "functional")
+cellchat <- netClustering(cellchat, type = "functional")
+
+netVisual_embedding(cellchat, type = "functional", label.size = 3.5)
+
+pathways.show.all <- cellchat@netP$pathways
+for (pathway_name in pathways.show.all) {
+   filename <- sprintf("~/pathway_%s.png", pathway_name)
+   png(filename, width = 700, height = 300)
+   netAnalysis_signalingRole_network(cellchat, signaling = pathway_name, width = 16, height = 5, font.size = 18)
+   dev.off()
+}
+
+```
+
+```{r Subset and run CellChat for injured disc}
+inj.sub <- subset(AllData.int,subset = disc.ident == "injured")
+data.matrix.inj <- GetAssayData(inj.sub, assay = "RNA", slot = "data")
+cellchat.inj <- createCellChat(object = data.matrix.inj, meta = inj.sub@meta.data, group = "seurat_clusters_adjusted")
+cellchat.inj@DB <- CellChatDB.human
+cellchat.inj <- subsetData(cellchat.inj)
+future::plan("multisession", workers = 4)
+cellchat.inj <- identifyOverExpressedGenes(cellchat.inj)
+cellchat.inj <- identifyOverExpressedInteractions(cellchat.inj)
+
+# Compute communication probability
+# Disable parallel processing if you get allocation error using 'future::plan("sequential")'
+options(future.globals.maxSize = 2000 * 1024^2) #only for supercomputers
+cellchat.inj <- computeCommunProb(cellchat.inj, type = "triMean")
+cellchat.inj <- filterCommunication(cellchat.inj, min.cells = 10)
+
+cellchat.inj <- computeCommunProbPathway(cellchat.inj)
+cellchat.inj <- aggregateNet(cellchat.inj)
+cellchat.inj <- netAnalysis_computeCentrality(cellchat.inj, slot.name = "netP")
+
+png("~/injured number_of_interactions.png", width = 800, height = 600)
+netVisual_circle(cellchat.inj@net$count, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Number of interactions")
+dev.off()
+
+png("~/injured interaction_weights_strength.png", width = 800, height = 600)
+netVisual_circle(cellchat.inj@net$weight, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Interaction weights/strength")
+dev.off()
+
+
+
+```
+
+```{r Subset and run CellChat for healthy disc}
+ctr.sub <- subset(AllData.int,subset = disc.ident == "healthy")
+data.matrix.ctr <- GetAssayData(ctr.sub, assay = "RNA", slot = "data")
+cellchat.ctr <- createCellChat(object = data.matrix.ctr, meta = ctr.sub@meta.data, group = "seurat_clusters_adjusted")
+cellchat.ctr@DB <- CellChatDB.human
+cellchat.ctr <- subsetData(cellchat.ctr)
+future::plan("multisession", workers = 4)
+cellchat.ctr <- identifyOverExpressedGenes(cellchat.ctr)
+cellchat.ctr <- identifyOverExpressedInteractions(cellchat.ctr)
+
+# Compute communication probability
+# Disable parallel processing if you get allocation error using 'future::plan("sequential")'
+options(future.globals.maxSize = 2000 * 1024^2) #only for supercomputers
+cellchat.ctr <- computeCommunProb(cellchat.ctr, type = "triMean")
+cellchat.ctr <- filterCommunication(cellchat.ctr, min.cells = 10)
+
+cellchat.ctr <- computeCommunProbPathway(cellchat.ctr)
+cellchat.ctr <- aggregateNet(cellchat.ctr)
+cellchat.ctr <- netAnalysis_computeCentrality(cellchat.ctr, slot.name = "netP")
+
+png("~/healthy number_of_interactions.png", width = 800, height = 600)
+netVisual_circle(cellchat.ctr@net$count, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Number of interactions")
+dev.off()
+
+png("~/healthy interaction_weights_strength.png", width = 800, height = 600)
+netVisual_circle(cellchat.ctr@net$weight, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Interaction weights/strength")
+dev.off()
+
+
+netAnalysis_contribution(cellchat, signaling = "Netrin")
+netAnalysis_contribution(cellchat, signaling = "UNC5")
+netAnalysis_contribution(cellchat, signaling = "IL6")
+netAnalysis_contribution(cellchat, signaling = "TGFb")
+
+
+
+```
+
+Visualizing cellchat subsets
+
+```{r Visualizing CellChat Comparing disc.ident}
+object.list <- list(ctr = cellchat.ctr,inj = cellchat.inj)
+cellchat.sub <- mergeCellChat(object.list, add.names = names(object.list),cell.prefix = TRUE)
+cellchat.sub <- computeNetSimilarityPairwise(cellchat.sub, type = "functional")
+cellchat.sub <- netEmbedding(cellchat.sub, type = "functional")
+cellchat.sub <- netClustering(cellchat.sub, type = "functional")
+cellchat.sub <- computeNetSimilarityPairwise(cellchat.sub, type = "structural")
+cellchat.sub <- netEmbedding(cellchat.sub, type = "structural")
+cellchat.sub <- netClustering(cellchat.sub, type = "structural")
+
+ci1 <- compareInteractions(cellchat.sub, show.legend = F, group = c(1,2))
+ci2 <- compareInteractions(cellchat.sub, show.legend = F, group = c(1,2), measure = "weight")
+ci1 +ci2
+ggsave("Compare Interaction.png", plot = grid.arrange(grob1 = ci1, grob2 = ci2, ncol = 2), width = 10, height = 8, units = "in", dpi = 300)
+
+#par(mfrow = c(1,2), xpd=TRUE)
+netVisual_diffInteraction(cellchat.sub, weight.scale = T)
+
+netVisual_heatmap(cellchat.sub) + netVisual_heatmap(cellchat.sub, measure = "weight")
+
+png("Compare Heatmap.png", width = 20, height = 8, res = 300, units = "in")
+netVisual_heatmap(cellchat.sub) + netVisual_heatmap(cellchat.sub, measure = "weight")
+dev.off()
+
+weight.max <- getMaxWeight(object.list, attribute = c("idents","count"))
+png("NetVisual_circle_plots inj vs ctr.png", width = 3200, height = 1600, res = 300)
+par(mfrow = c(1,2), xpd=TRUE)
+for (i in 1:length(object.list)) {
+  netVisual_circle(object.list[[i]]@net$count, weight.scale = T, label.edge= F, edge.weight.max = weight.max[2], edge.width.max = 12, title.name = paste0("Number of interactions - ", names(object.list)[i]))
+}
+dev.off()
+
+num.link <- sapply(object.list, function(x) {rowSums(x@net$count) + colSums(x@net$count)-diag(x@net$count)})
+weight.MinMax <- c(min(num.link), max(num.link)) # control the dot size in the different datasets
+gg <- list()
+for (i in 1:length(object.list)) {
+  gg[[i]] <- netAnalysis_signalingRole_scatter(object.list[[i]], title = names(object.list)[i], weight.MinMax = weight.MinMax)
+}
+netscat <- patchwork::wrap_plots(plots = gg)
+ggsave("combined_signalingRole_scatter.png", plot = netscat, width = 20, height = 10, units = "in", dpi = 300)
+
+idents <- paste0("C", 0:21)  
+for (ident in idents) {
+  plot <- netAnalysis_signalingChanges_scatter(cellchat.sub, idents.use = ident)
+  filename <- paste("signaling_changes_scatter_plot_", ident, ".png", sep = "")
+  ggsave(filename, plot = plot, width = 20, height = 15, units = "in", dpi = 300)
+}
+
+png("functional_pairwise.png", width = 2400, height = 1800, res = 300)
+netVisual_embeddingPairwise(cellchat.sub, type = "functional", label.size = 3)
+dev.off() 
+
+png("functional_pairwise_zoom_in.png", width = 2400, height = 1800, res = 300)
+netVisual_embeddingPairwiseZoomIn(cellchat.sub, type = "functional", nCol = 2)
+dev.off()
+
+png("structural_pairwise.png", width = 3200, height = 2400, res = 300)
+netVisual_embeddingPairwise(cellchat.sub, type = "structural", label.size = 3)
+dev.off()  
+
+png("structural_pairwise_zoom_in.png", width = 3200, height = 2400, res = 300)
+netVisual_embeddingPairwiseZoomIn(cellchat.sub, type = "structural", nCol = 2)
+dev.off()
+
+png("functional_similarity.png", width = 800, height =1600, res = 300)
+rankSimilarity(cellchat.sub, type = "functional")
+dev.off()
+
+png("structural_similarity.png", width = 800, height = 1600, res = 300)
+rankSimilarity(cellchat.sub, type = "structural")
+dev.off()
+
+plot1 <- rankNet(cellchat.sub, mode = "comparison", stacked = TRUE, do.stat = TRUE)
+plot2 <- rankNet(cellchat.sub, mode = "comparison", stacked = FALSE, do.stat = TRUE)
+
+combined_plot <- plot1 + plot2 
+combined_plot
+ggsave("combined_weight_rankNet_plots.png", plot = combined_plot, width = 16, height = 8, units = "in", dpi = 300)
+
+png("combined_outgoing_heatmaps.png", width = 12, height = 10, res = 300, units = "in")
+i = 1
+pathway.union <- union(object.list[[i]]@netP$pathways, object.list[[i+1]]@netP$pathways)
+ht1 = netAnalysis_signalingRole_heatmap(object.list[[i]], pattern = "outgoing", signaling = pathway.union, title = names(object.list)[i], width = 10, height = 14)
+ht2 = netAnalysis_signalingRole_heatmap(object.list[[i+1]], pattern = "outgoing", signaling = pathway.union, title = names(object.list)[i+1], width = 10, height = 14)
+draw(ht1 + ht2, ht_gap = unit(0.5, "cm"))
+dev.off()
+
+png("combined_incoming_heatmaps.png", width = 12, height = 10, res = 300, units = "in")
+i = 1
+pathway.union <- union(object.list[[i]]@netP$pathways, object.list[[i+1]]@netP$pathways)
+ht1 = netAnalysis_signalingRole_heatmap(object.list[[i]], pattern = "incoming", signaling = pathway.union, title = names(object.list)[i], width = 10, height = 14)
+ht2 = netAnalysis_signalingRole_heatmap(object.list[[i+1]], pattern = "incoming", signaling = pathway.union, title = names(object.list)[i+1], width = 10, height = 14)
+draw(ht1 + ht2, ht_gap = unit(0.5, "cm"))
+dev.off()
+
+png("combined_all_heatmaps.png", width = 12, height = 10, res = 300, units = "in")
+i = 1
+pathway.union <- union(object.list[[i]]@netP$pathways, object.list[[i+1]]@netP$pathways)
+ht1 = netAnalysis_signalingRole_heatmap(object.list[[i]], pattern = "all", signaling = pathway.union, title = names(object.list)[i], width = 10, height = 14)
+ht2 = netAnalysis_signalingRole_heatmap(object.list[[i+1]], pattern = "all", signaling = pathway.union, title = names(object.list)[i+1], width = 10, height = 14)
+draw(ht1 + ht2, ht_gap = unit(0.5, "cm"))
+dev.off()
+```
+
+```{r Problem test}
+data.matrix <- GetAssayData(AllData.int, assay = "RNA", slot = "data")
+cellchat <- createCellChat(object = data.matrix, meta = AllData.int@meta.data, group = "disc.prop")
+cellchat@DB <- CellChatDB.human
+
+cellchat <- subsetData(cellchat)
+future::plan("multisession", workers = 4)
+cellchat <- identifyOverExpressedGenes(cellchat)
+cellchat <- identifyOverExpressedInteractions(cellchat)
+
+# Compute communication probability
+# Disable parallel processing if you get allocation error using 'future::plan("sequential")'
+options(future.globals.maxSize = 2000 * 1024^2) #only for supercomputers
+cellchat <- computeCommunProb(cellchat, type = "triMean")
+cellchat <- filterCommunication(cellchat, min.cells = 10)
+
+#df.cell <- subsetCommunication(cellchat)
+#df.group <- subsetCommunication(cellchat, sources.use = c(1,2), targets.use = c(4,5))
+#df.path <- subsetCommunication(cellchat, signaling = c("COL2A1", "ACAN"))
+
+cellchat <- computeCommunProbPathway(cellchat)
+cellchat <- aggregateNet(cellchat)
+cellchat <- netAnalysis_computeCentrality(cellchat, slot.name = "netP")
+
+groupSize <- as.numeric(table(cellchat@idents))
+
+png("~/interactions.png", width = 800, height = 600)
+netVisual_circle(cellchat@net$count, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Number of interactions")
+netVisual_circle(cellchat@net$weight, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Interaction weights/strength")
+dev.off()
+
+```
+
+```{r}
+png("~/number_of_interactions.png", width = 800, height = 600)
+netVisual_circle(cellchat@net$count, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Number of interactions")
+dev.off()
+
+png("~/interaction_weights_strength.png", width = 800, height = 600)
+netVisual_circle(cellchat@net$weight, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Interaction weights/strength")
+dev.off()
+
+#plot individual weights
+mat <- cellchat@net$weight
+for (i in 1:nrow(mat)) {
+  filename <- sprintf("~/weightplot_%s.png", rownames(mat)[i])
+  png(filename, width = 800, height = 600)
+  mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat2[i, ] <- mat[i, ]
+  netVisual_circle(mat2, vertex.weight = groupSize, weight.scale = TRUE, edge.weight.max = max(mat), title.name = rownames(mat)[i])
+  dev.off()
+}
+
+#plot individual interaction
+mat <- cellchat@net$count
+for (i in 1:nrow(mat)) {
+  filename <- sprintf("~/interactionplot_%s.png", rownames(mat)[i])
+  png(filename, width = 800, height = 600)
+  mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat2[i, ] <- mat[i, ]
+  netVisual_circle(mat2, vertex.weight = groupSize, weight.scale = TRUE, edge.weight.max = max(mat), title.name = rownames(mat)[i])
+  dev.off()
+}
+
+gg1 <- netAnalysis_signalingRole_scatter(cellchat)
+ggsave(filename = "signaling_role_scatter_plot.png", plot = gg1, width = 10, height = 8, dpi = 300)
+
+ht1 <- netAnalysis_signalingRole_heatmap(cellchat, pattern = "outgoing")
+ht2 <- netAnalysis_signalingRole_heatmap(cellchat, pattern = "incoming")
+ht1 + ht2
+
+png("incoming_heatmap.png", width = 8, height = 8, units = "in", res = 300)
+draw(ht1)
+dev.off()
+
+png("outgoing_heatmap.png", width = 8, height = 8, units = "in", res = 300)
+draw(ht2)
+dev.off()
+
+netVisual_bubble(cellchat, sources.use = 22, targets.use = c(5:11), remove.isolate = FALSE)
+
+pathways.show.all <- cellchat@netP$pathways
+for (pathway_name in pathways.show.all) {
+   filename <- sprintf("~/pathway_%s.png", pathway_name)
+   png(filename, width = 800, height = 600)
+   netVisual_aggregate(cellchat, signaling = pathway_name, layout = "chord")
+   dev.off()
+}
+
+selectK(cellchat, pattern = "outgoing")
+nPatterns = 3
+cellchat <- identifyCommunicationPatterns(cellchat, pattern = "outgoing", k = nPatterns)
+
+riv.out <- netAnalysis_river(cellchat, pattern = "outgoing")
+ggsave("outgoing_river_plot.png", plot = riv.out, width = 10, height = 8, units = "in", dpi = 300)
+dot.out <- netAnalysis_dot(cellchat, pattern = "outgoing")
+ggsave("outgoing_dot_plot.png", plot = dot.out, width = 10, height = 8, units = "in", dpi = 300)
+
+selectK(cellchat, pattern = "incoming")
+nPatterns = 3
+cellchat <- identifyCommunicationPatterns(cellchat, pattern = "incoming", k = nPatterns)
+riv.in <- netAnalysis_river(cellchat, pattern = "incoming")
+ggsave("incoming_river_plot.png", plot = riv.in, width = 10, height = 8, units = "in", dpi = 300)
+dot.in <- netAnalysis_dot(cellchat, pattern = "incoming")
+ggsave("incoming_dot_plot.png", plot = dot.in, width = 10, height = 8, units = "in", dpi = 300)
+
+
+cellchat <- computeNetSimilarity(cellchat, type = "functional")
+cellchat <- netEmbedding(cellchat, type = "functional")
+cellchat <- netClustering(cellchat, type = "functional")
+
+netVisual_embedding(cellchat, type = "functional", label.size = 3.5)
+
+pathways.show.all <- cellchat@netP$pathways
+for (pathway_name in pathways.show.all) {
+   filename <- sprintf("~/pathway_%s.png", pathway_name)
+   png(filename, width = 700, height = 300)
+   netAnalysis_signalingRole_network(cellchat, signaling = pathway_name, width = 16, height = 5, font.size = 18)
+   dev.off()
+}
+```
+
+```{r}
+
+```

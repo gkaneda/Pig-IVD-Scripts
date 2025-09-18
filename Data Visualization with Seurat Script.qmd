@@ -1,0 +1,612 @@
+---
+title: "General Seurat Figures and Analysis in RStudio"
+format: html
+editor: visual
+---
+
+```{r}
+
+```
+
+All packages required for script to run.
+
+```{r}
+#| echo: false
+#if (!require("BiocManager", quietly = TRUE))
+#install.packages("BiocManager")
+#BiocManager::install("Seurat", force = TRUE)
+#install.packages("remotes")
+#install.packages("R.utils")
+#remotes::install_github("satijalab/seurat-wrappers")
+#BiocManager::install(c('BiocGenerics', 'DelayedArray', 'DelayedMatrixStats',
+#                       'limma', 'lme4', 'S4Vectors', 'SingleCellExperiment',
+#                       'SummarizedExperiment', 'batchelor', 'HDF5Array',
+#                       'terra', 'ggrastr'))
+#install.packages("devtools")
+#devtools::install_github('cole-trapnell-lab/monocle3')
+#BiocManager::install("EnhancedVolcano", force = TRUE)
+#BiocManager::install("ComplexHeatmap")
+#devtools::install_github("jinworks/CellChat")
+#install.packages("NMF")
+
+  library(Seurat)
+  library(SeuratWrappers)
+  library(patchwork)
+  library(dplyr)
+  library(ggplot2)
+  library(monocle3)
+  library(Matrix)
+  #library(EnhancedVolcano)
+  library (ggrepel)
+  library(RColorBrewer)
+  library(pheatmap)
+  library(webr)
+
+
+#if GK Laptop
+#setwd("C:/Users/gkane/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/3. Data Visualization via Seurat")
+
+#if BIRI super computer
+setwd("C:/Users/kanedag/OneDrive - Cedars-Sinai Health System/Sheyn, Dima's files - Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD model/Data/scRNA Seq/RStudio and Seurat Analysis/3. Data Visualization via Seurat")
+```
+
+```{r}
+#color by cluster
+AllData.int$seurat_clusters -> AllData.int@active.ident
+AllData.umap <-DimPlot(AllData.int, reduction = "umap", pt.size = 0.01, label = TRUE, 
+                       label.size = 4, raster = FALSE) + coord_fixed(ratio=1)
+AllData.pca
+ggsave("AllData umap.png", AllData.umap)
+
+#color by disc
+P1 <- DimPlot(AllData.int, reduction = "pca", pt.size = 0.1, label = TRUE, repel = TRUE,
+              raster = FALSE,group.by = "orig.ident")
+P1
+ggsave("All discs orig.ident pca.png", P1)
+
+#color by injury stats
+P2 <- DimPlot(AllData.int, reduction = "pca", pt.size = 0.1, label = TRUE, repel = TRUE,
+              raster = FALSE,group.by = "disc.ident")
+P2
+ggsave("Inj vs Healthy pca.png", P2)
+
+P3 <- DimPlot(AllData.int, reduction = "pca", pt.size = 0.1, label = TRUE, repel = TRUE,
+              raster = FALSE,group.by = "cell.ident")
+P3
+ggsave("Cell Ident pca.png", P3)
+
+P4 <- DimPlot(AllData.int, reduction = "pca", pt.size = 0.1, label = TRUE, repel = TRUE,
+              raster = FALSE,group.by = "cell.state")
+P4
+ggsave("Cell.state pca.png", P4)
+
+DimPlot(AllData.int, reduction = "pca", pt.size = 0.01, label = TRUE, 
+                       label.size = 4, raster = FALSE)
+DimPlot(AllData.int, reduction = "pca", pt.size = 0.1, label = TRUE, repel = TRUE,
+              raster = FALSE,split.by = "orig.ident")
+DimPlot(AllData.int, reduction = "pca", pt.size = 0.1, label = TRUE, repel = TRUE,
+              raster = FALSE,split.by = "disc.ident")
+
+```
+
+Plot percent cells from each disc per cluster and percent cells injured/healthy per cluster
+
+```{r Visualization of batch spread within clusters}
+#percent cells from each disc per cluster
+  # Create a table of cluster-orig.ident counts
+  cluster_orig.ident_counts <- table(AllData.int$seurat_clusters, AllData.int$orig.ident)
+  
+  # Calculate the percentage of cells per genotype in each cluster
+  cluster_orig.ident_percentage <- prop.table(cluster_orig.ident_counts, margin = 1) * 100
+  
+  # Create a data frame for plotting
+  plot_data <- as.data.frame(cluster_orig.ident_percentage)
+  colnames(plot_data) <- c('Cluster', 'orig.ident', 'Percentage')
+  
+  # Create the stacked bar plot using ggplot2
+  disc.pct.plot <- ggplot(plot_data, aes(x = Cluster, y = Percentage, fill = orig.ident)) +
+    geom_bar(stat = "identity", position = "stack", width = 0.7) +
+    labs(x = 'Cluster', y = 'Percentage of Cells') +
+    theme_minimal() +
+    ggtitle('Percentage of Cells per orig.ident in Each Cluster') +
+    guides(fill = guide_legend(title = 'orig.ident'))
+disc.pct.plot
+ggsave("percent cells per disc.png", disc.pct.plot, width = 10, height = 8, units = "in")
+  
+#percent cells injured/healthy per cluster
+  #Create a table of cluster-disc.ident counts
+  inj_ctr_counts <- table(AllData.int$seurat_clusters, AllData.int$disc.ident)
+  
+  # Calculate the percentage of cells per genotype in each cluster
+  inj_ctr_percentage <- prop.table(inj_ctr_counts, margin = 1) * 100
+  
+  # Create a data frame for plotting
+  plot_data <- as.data.frame(inj_ctr_percentage)
+  colnames(plot_data) <- c('Cluster', 'disc.ident', 'Percentage')
+  
+  # Create the stacked bar plot using ggplot2
+  InjCtr.pct.plot <- ggplot(plot_data, aes(x = Cluster, y = Percentage, fill = disc.ident)) +
+    geom_bar(stat = "identity", position = "stack", width = 0.7) +
+    labs(x = 'Cluster', y = 'Percentage of Cells') +
+    theme_minimal() +
+    ggtitle('Percentage of Cells per disc.ident in Each Cluster') +
+    guides(fill = guide_legend(title = 'disc.ident'))+
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  InjCtr.pct.plot
+ggsave("percent cells per inj-ctr.png", InjCtr.pct.plot, width = 10, height = 8, units = "in")
+
+
+```
+
+```{r Pie-Donut plot}
+# Extract the cell.ident and seurat_clusters from the Seurat object
+cell_data <- data.frame(cell.ident = AllData.int@meta.data$cell.ident,
+                        seurat_clusters = AllData.int@meta.data$seurat_clusters)
+
+# Summarize the counts for each combination of cell type and cluster
+PD <- cell_data %>%
+  group_by(cell.ident, seurat_clusters) %>%
+  summarise(n = n()) %>%
+  ungroup()
+
+# Modify only the labels containing the word "Transitional" to include line breaks
+#PD$cell.ident <- ifelse(grepl("Transitional", PD$cell.ident),
+#                        gsub("Transitional ", "Transitional\n", PD$cell.ident),
+#                        as.character(PD$cell.ident))
+
+# Create the nested pie chart with the specified order and label adjustments
+PieDonut(PD, aes(cell.ident, seurat_clusters, count = n), 
+         title = "Cell Types and Clusters Distribution",
+         showPieName = FALSE,
+         start=pi/2,
+         r0 = 0
+         )
+
+```
+
+```{r Healthy vs Injured cluster breakdown bar}
+# Extract meta.data from Seurat object
+meta_data <- AllData.int@meta.data
+
+# Ensure the relevant columns are factors
+meta_data$disc.ident <- as.factor(meta_data$disc.ident)
+meta_data$seurat_clusters <- as.factor(meta_data$seurat_clusters)
+
+meta_data_summary <- meta_data %>%
+    dplyr::count(disc.ident, cell.ident) %>%
+    group_by(disc.ident) %>%
+    mutate(percentage = n / sum(n) * 100)
+
+
+# Create the bar plot using ggplot2
+ggplot(meta_data, aes(x = disc.ident, fill = cell.ident)) + 
+    geom_bar(position = "fill", stat = "count") +
+    scale_y_continuous(labels = scales::percent) +
+    theme_minimal() +
+    labs(x = "Cell Ident", y = "Percentage", fill = "Cell Identity") +
+    ggtitle("Distribution of cell identities across Discs")
+
+
+
+```
+
+First run through for cluster cell type identification and visualization of select interesting genes
+
+```{r Initial cell identification and visiualization of interesting genes}
+marker_test_res <- top_markers(cds, group_cells_by="cell.ident", reference_cells=1000, cores=8)
+
+top_specific_markers <- marker_test_res %>%
+  filter(fraction_expressing >= 0.5) %>%
+  group_by(cell_group) %>%
+  top_n(13, pseudo_R2)
+top_specific_marker_ids <- unique(top_specific_markers %>% pull(gene_id))
+
+top_specific_marker.int <- plot_genes_by_group(cds,
+                    top_specific_marker_ids,
+                    group_cells_by="cell.ident",
+                    ordering_type="maximal_on_diag",
+                    max.size=3)
+top_specific_marker.int
+
+mmp.adam.timp.markers <- DotPlot(AllData.int, features = c("MMP1","MMP2","MMP3", "MMP7",
+                        "MMP11","MMP12","MMP13","MMP14","MMP15","MMP16",
+                        "MMP17","MMP19","MMP20", "MMP23B", "MMP24",
+                        "MMP25","MMP27","MMP28","ADAMTS1","ADAMTS2","ADAMTS3",
+                   "ADAMTS4","ADAMTS5","ADAMTS6","ADAMTS7","ADAMTS9",
+                   "ADAMTS10","ADAMTS12","ADAMTS14",
+                   "ADAMTS17","TIMP1","TIMP2","TIMP3","TNFAIP6")) +
+  scale_color_gradientn(colors = rev(brewer.pal(11, "RdBu")))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  mmp.adam.timp.markers
+  ggsave("MMP-ADAMTS-TIMP dotplot.png", mmp.adam.timp.markers)
+  
+    assort.mark <- DotPlot(AllData.int, features = c("CDKN1A", "CDKN2A", "E2F7","EIF4", "CDC25A","CDC42", "CDKN2D","CDK12", "TNFRSF1B", "TP53", "IFNG","TNF","IL1B", "IL2","IL6","IL10", "CCL2","CCL7", "CXCL1","CXCL5","CXCL9","CXCL10","MCSF", "RANKL","VEGFA", "IL1R2", "CCL6","CCR6","ADAM8", "TLR1", "TLR2","TLR7","TLR9")) +
+  scale_color_gradientn(colors = rev(brewer.pal(11, "RdBu")))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  assort.mark
+  ggsave("Assorted markers dotplot.png", assort.mark)
+  hog <- DotPlot(AllData.int, features = c("KRT8", "KRT18", "MGP","DCN","PRRX1","CRLF1","PDE1A","ABLIM1","HHIP", "HHIPL2","CDON","BOC","SMO")) +
+  scale_color_gradientn(colors = rev(brewer.pal(11, "RdBu")))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  hog
+  ggsave("Hedgehog dotplot.png",hog, width = 8, height = 7, units = "in")
+  #WNT related markers "WNT5B","DVL1","DVL3","LRP5","CTNNB1","GSK3B","CSNK1E","LRP6","SFRP1"
+  #assorted differentiation markers - ,"SOX5","SOX6","SOX9", "CHRD","GDF5","GREM1"
+    
+  celltype.overview <- DotPlot(AllData.int, features = list(
+    "NC" = c("TBXT","KRT8","KRT18","CD24"),
+    "Trans" = c("ACAN","OGN","ABLIM1","FOSB","PODN","CCNL1","SOX9","COL11A1","FN1","COL2A1","TIMP3"),
+    "NP" = c( "PAX1","COL9A1","SOX5","SOX6","MGP","DCN","LUM"),
+    "Pro" = c("TOP2A","CDK1","BIRC5"),
+    "EC" = c("PECAM1","ENG", "CDH5"))) +
+  scale_color_gradientn(colors = rev(brewer.pal(11, "RdBu")))+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  celltype.overview
+  ggsave("AllData initial cell overview dotplot.png", celltype.overview)
+  
+    dpi.overview <- DotPlot(AllData.int, features = list(
+      "Degeneration" = c("COL1A1", "COL3A1", "FN1", "MMP16","ADAMTS6","TIMP1","TIMP3","CHI3L1"),
+    "Inflammation" = c("IL1R1","IL6R","IL16","IL18","TNFRSF1B","IER3","HMOX1"),
+    "Pain/Innervation" = c("NTN1","NTN4","SEMA3D","SEMA3E","CCN2","TRPV4"))) +
+  scale_color_gradientn(colors = rev(brewer.pal(11, "RdBu")))+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  dpi.overview
+  ggsave("degen pain inflam marker overview dotplot.png", celltype.overview)
+  
+```
+
+```{r}
+DefaultAssay(AllData.int) <- "RNA"
+  celltype.overview <- DotPlot(AllData.int, features = c("ACAN", "COL2A1","SOX9","MIA","KRT8","KRT18","SLC2A1", "CD81","FN1","CRTAC1","CALR","COL1A1","COL1A2", "COL5A1","COL5A2","COL12A1","CD14", "TBXT","PECAM1","ENG", "CDH5", "PTPRC","LYZ" )) +
+    scale_color_gradientn(colors = rev(brewer.pal(11, "RdBu")))+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+celltype.overview
+
+#Identification of endothelial cells - Cluster 14
+Endo.clust <- VlnPlot(AllData.int, features = c("ENG", "PECAM1", "CDH5", "ICAM1", "TEK", "KDR"),pt.size = 0)
+Endo.clust
+
+
+#notochordal/progenitor cells - Cluster 0,1,3,8,9,11,13-16,18,20, maybe 17
+noto.clust <- VlnPlot(AllData.int, features = c("TBXT","KRT8","KRT18","PDGFRA","PRRX1","PROCR","ANGPT1","PAX1"), pt.size = 0)
+noto.clust
+
+AllData.int$cell.ident <- as.factor(ifelse(AllData.int$seurat_clusters %in% c("0", "1", "3", "9", "20"), "Notochordal", 
+                         ifelse(AllData.int$seurat_clusters %in% c("2", "4", "5", "6", "7", "12"), "Nucleus Pulposus",
+                         ifelse(AllData.int$seurat_clusters %in% c("10", "19"), "Fibrocartilage",
+                         ifelse(AllData.int$seurat_clusters %in% c("11", "13"), "Transitional Fibrocartilage",
+                         ifelse(AllData.int$seurat_clusters %in% c("8", "14", "15", "16", "18"), "Transitional Nucleus Pulposus",
+                         ifelse(AllData.int$seurat_clusters == "17", "Immune",
+                         ifelse(AllData.int$seurat_clusters == "21", "Endothelial", ""))))))))
+
+AllData.int$cell.state <- as.factor(ifelse(AllData.int$cell.ident %in% c("Notochordal"), "Progenitor", 
+                         ifelse(AllData.int$cell.ident %in% c("Transitional Nucleus Pulposus", "Transitional Fibrocartilage"), "Transitional",
+                         ifelse(AllData.int$cell.ident %in% c("Nucleus Pulposus", "Fibrocartilage", "Immune", "Endothelial"), "Terminal", NA))))
+
+```
+
+Find and export cluster vs all unique markers
+
+```{r Export cluster vs all unique genes for IPA analysis}
+DefaultAssay(AllData.int) <- "RNA"
+top_genes_list <- list()
+# Loop through each cluster, find unique genes, and export to CSV
+for (i in 0:21) {
+  
+  cluster_markers <- FindMarkers(AllData.int, ident.1 = i, min.pct = 0.25)
+  top_genes <- head(cluster_markers[order(cluster_markers$p_val_adj), ],10)
+    top_genes_list[[paste("Cluster", i)]] <- top_genes
+
+#  write.csv(cluster_markers, sprintf("C:/Users/kanedag/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/3. Data Visualization via Seurat/Cluster Unique Genes/Cluster%d.csv", i), row.names = TRUE)
+print(paste("File for cluster", i, "written."))
+}
+print(top_genes_list)
+
+
+top_gene_names <- unique(unlist(lapply(top_genes_list, rownames)))
+
+# Remove markers that start with "ENSSS"
+top_gene_names <- top_gene_names[!grepl("^ENSSS", top_gene_names)]
+
+top5.dot <- DotPlot(AllData.int, features = top_gene_names) +
+  scale_color_gradientn(colors = rev(brewer.pal(11, "RdBu")))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  top5.dot
+  ggsave("Top 10 genes dotplot.png", top5.dot, width = 30, height = 7, units = "in")
+ 
+```
+
+Find and export unique markers between injured vs healthy discs
+
+```{r Export inj vs ctr unique markers for IPA analysis}
+
+Idents(AllData.int) <- AllData.int$disc.ident
+
+# Find markers between groups
+
+InjVCtr <- FindMarkers(AllData.int, ident.1 = "injured", ident.2 = "healthy", min.pct = 0.25)
+
+# Print the top 10 markers
+
+head(InjVCtr, n = 10)
+
+# Write the markers to a CSV file
+
+write.csv(InjVCtr, file = "C:/Users/kanedag/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/3. Data Visualization via Seurat/Cluster Unique Genes/Inj_Vs_Ctr_markers.csv", row.names = TRUE)
+
+```
+
+```{r NP-FC-Transitional Clusters comparison}
+Idents(AllData.int) <- AllData.int$seurat_clusters
+
+# Define the subset of clusters to process
+clusters_to_process <- c(2, 4:8, 10:16, 18:19)
+
+# Loop through each specified cluster
+for (i in clusters_to_process) {
+  # Find markers in the current cluster compared to all other clusters in the subset
+  cluster_markers <- FindMarkers(AllData.int, ident.1 = i, ident.2 = clusters_to_process[clusters_to_process != i], min.pct = 0.25)
+  
+  # Construct the file path using sprintf for organized file naming
+  file_path <- sprintf("C:/Users/kanedag/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/3. Data Visualization via Seurat/NP-FC-Transitional Clusters/Cluster%d.csv", i)
+  
+  # Write the result to a CSV file
+  write.csv(cluster_markers, file_path, row.names = TRUE)
+  
+  # Print message after writing the file
+  print(paste("File for cluster", i, "written."))
+}
+```
+
+```{r NP-FC cluster comparison}
+Idents(AllData.int) <- AllData.int$seurat_clusters
+
+# Define the subset of clusters to process
+clusters_to_process <- c(2, 4:7, 10,12)
+
+# Loop through each specified cluster
+for (i in clusters_to_process) {
+  # Find markers in the current cluster compared to all other clusters in the subset
+  cluster_markers <- FindMarkers(AllData.int, ident.1 = i, ident.2 = clusters_to_process[clusters_to_process != i], min.pct = 0.25)
+  
+  # Construct the file path using sprintf for organized file naming
+  file_path <- sprintf("C:/Users/kanedag/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/3. Data Visualization via Seurat/NP-FC Clusters/Cluster%d.csv", i)
+  
+  # Write the result to a CSV file
+  write.csv(cluster_markers, file_path, row.names = TRUE)
+  
+  # Print message after writing the file
+  print(paste("File for cluster", i, "written."))
+}
+
+```
+
+```{r Notochordal cluster comparison}
+Idents(AllData.int) <- AllData.int$seurat_clusters
+
+# Define the subset of clusters to process
+clusters_to_process <- c(0, 1, 3, 8, 9, 11, 14:16, 18, 20)
+
+# Loop through each specified cluster
+for (i in clusters_to_process) {
+  # Find markers in the current cluster compared to all other clusters in the subset
+  cluster_markers <- FindMarkers(AllData.int, ident.1 = i, ident.2 = clusters_to_process[clusters_to_process != i], min.pct = 0.25)
+  
+  # Construct the file path using sprintf for organized file naming
+  file_path <- sprintf("C:/Users/gkane/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/3. Data Visualization via Seurat/Notochordal Clusters/Cluster%d.csv", i)
+  
+  # Write the result to a CSV file
+  write.csv(cluster_markers, file_path, row.names = TRUE)
+  
+  # Print message after writing the file
+  print(paste("File for cluster", i, "written."))
+}
+
+```
+
+```{r Cell type comparison}
+Idents(AllData.int) <- AllData.int$cell.ident
+
+# Define the subset of clusters to process
+ident_to_process <- c("Notochordal","Fibrocartilage", "Transitional Fibrocartilage","Transitional Nucleus Pulposus","Endothelial","Immune","Nucleus Pulposus")
+
+# Loop through each specified cluster
+for (i in ident_to_process) {
+  # Find markers in the current cluster compared to all other clusters in the subset
+  ident_markers <- FindMarkers(AllData.int, ident.1 = i, ident.2 = ident_to_process[ident_to_process != i], min.pct = 0.25)
+  
+  # Construct the file path using sprintf for organized file naming
+  file_path <- sprintf("C:/Users/kanedag/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/3. Data Visualization via Seurat/Comparison by cell type/%s.csv", i)
+  
+  # Write the result to a CSV file
+  write.csv(ident_markers, file_path, row.names = TRUE)
+  
+  # Print message after writing the file
+  print(paste("File for ident", i, "written."))
+}
+
+marker_test_res <- top_markers(cds, group_cells_by="cell.ident", reference_cells=1000, cores=8)
+
+top_specific_markers <- marker_test_res %>%
+  filter(fraction_expressing >= 0.5) %>%
+  group_by(cell_group) %>%
+  top_n(10, pseudo_R2)
+top_specific_marker_ids <- unique(top_specific_markers %>% pull(gene_id))
+
+top_specific_marker.int <- plot_genes_by_group(cds,
+                    top_specific_marker_ids,
+                    group_cells_by="cell.ident",
+                    ordering_type="maximal_on_diag",
+                    max.size=3)
+top_specific_marker.int
+
+```
+
+```{r Problem vs non-problem children}
+#all clusters with > 65% of one disc type will be classificed as that disc, clusters will 50/50 to 65/40 splits will be considered mixed.
+AllData.int$disc.prop <- as.factor(ifelse(AllData.int$seurat_clusters %in% c("0", "1", "3", "9", "11", "13", "14" ,"15","16","17","18","20"), "Healthy", 
+                         ifelse(AllData.int$seurat_clusters %in% c("2", "4", "5", "6", "8","9", "12","19"), "Injured", 
+                                ifelse(AllData.int$seurat_clusters %in% c("7","10","21"), "Mixed",""))))
+
+Idents(AllData.int) <- AllData.int$disc.prop
+
+# Find markers between groups
+
+comp <- FindMarkers(AllData.int, ident.1 = "Injured", ident.2 = "Healthy", min.pct = 0.25)
+
+# Write the markers to a CSV file
+
+write.csv(comp, file = "C:/Users/kanedag/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/3. Data Visualization via Seurat/Inj Vs Ctr cluster comparison.csv", row.names = TRUE)
+
+DotPlot(AllData.int, features = features_to_plot) +
+  scale_color_gradientn(colors = rev(brewer.pal(11, "RdBu")))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+
+Idents(AllData.int) <- AllData.int$seurat_clusters
+
+```
+
+```{r problem children comparison}
+Idents(AllData.int) <- AllData.int$seurat_clusters
+
+# Define the subset of clusters to process
+clusters_to_process <- c("2", "4", "5", "6", "7", "10", "12")
+
+# Loop through each specified cluster
+for (i in clusters_to_process) {
+  # Find markers in the current cluster compared to all other clusters in the subset
+  cluster_markers <- FindMarkers(AllData.int, ident.1 = i, ident.2 = clusters_to_process[clusters_to_process != i], min.pct = 0.25)
+  
+  # Construct the file path using sprintf for organized file naming
+  file_path <- sprintf("C:/Users/kanedag/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/3. Data Visualization via Seurat/Problem Children Comparison/Cluster%s.csv", i)
+  
+  # Write the result to a CSV file
+  write.csv(cluster_markers, file_path, row.names = TRUE)
+  
+  # Print message after writing the file
+  print(paste("File for cluster", i, "written."))
+}
+```
+
+```{r}
+DefaultAssay(AllData.int) <- "RNA"
+
+# Define gene lists (adjust if you already have them stored)
+EXO   <- c("TSG101","PDCD6IP","VPS4A","VPS4B","CHMP2A","CHMP2B","CHMP4A","CHMP4B",
+           "CHMP1A","CHMP1B","IST1","HGS","STAM","STAM2","RAB27A","RAB27B","RAB35",
+           "RAB11A","RAB11B","ARF6","VAMP7","VAMP8","SNAP23","SYTL4","ANXA1","ANXA2",
+           "CD9","CD63","CD81")
+
+CONST <- c("SAR1A","SAR1B","SEC23A","SEC23B","SEC24A","SEC24B","SEC24C","SEC24D",
+           "SEC13","SEC31A","SEC31B","ARF1","GBF1","COPA","COPB1","COPB2","COPG1",
+           "COPG2","COPZ1","COPZ2","SEC61A1","SEC61B","SSR1","HSPA5","DNAJB11",
+           "STX3","STX4","VAMP3","VAMP8","SNAP23")
+
+CAV   <- c("CAV1","CAV2","CAVIN1","CAVIN2","CAVIN3","EHD2")
+
+REG   <- c("RAB3A","RAB3B","RAB3C","RAB3D","SYT1","SYT7","CPLX1","CPLX2","STX1A",
+           "VAMP2","SNAP25")
+
+# Add module scores with unique names
+AllData.int <- AddModuleScore(AllData.int, features = list(EXO),   name = "EXOscore")
+AllData.int <- AddModuleScore(AllData.int, features = list(CONST), name = "CONSTscore")
+AllData.int <- AddModuleScore(AllData.int, features = list(CAV),   name = "CAVscore")
+AllData.int <- AddModuleScore(AllData.int, features = list(REG),   name = "REGscore")
+
+# Create composite AltTraffickingScore
+AllData.int$AltTraffickingScore <-
+  AllData.int$EXOscore1 + AllData.int$CONSTscore1 -
+  AllData.int$CAVscore1 - AllData.int$REGscore1
+
+#Cell communication style by cluster
+scores <- FetchData(AllData.int, vars = c("seurat_clusters",
+                                          "EXOscore1","CONSTscore1","CAVscore1","REGscore1","AltTraffickingScore"))
+
+avg_scores <- scores %>%
+    group_by(seurat_clusters) %>%
+    summarise(across(everything(), mean, na.rm = TRUE))
+
+avg_scores_long <- tidyr::pivot_longer(avg_scores, 
+                                       cols = -seurat_clusters,
+                                       names_to = "ScoreType",
+                                       values_to = "MeanScore")
+
+ggplot(avg_scores_long, aes(x = seurat_clusters, y = MeanScore, fill = ScoreType)) +
+    geom_bar(stat="identity", position="dodge") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle=45, hjust=1)) +
+    ylab("Average module score") +
+    xlab("Cluster")
+
+#Cell communication style by cell type
+scores <- FetchData(AllData.int, vars = c("cell.ident",
+                                          "EXOscore1","CONSTscore1","CAVscore1","REGscore1","AltTraffickingScore"))
+
+avg_scores <- scores %>%
+    group_by(cell.ident) %>%
+    summarise(across(everything(), mean, na.rm = TRUE))
+
+avg_scores_long <- tidyr::pivot_longer(avg_scores, 
+                                       cols = -cell.ident,
+                                       names_to = "ScoreType",
+                                       values_to = "MeanScore")
+
+ggplot(avg_scores_long, aes(x = cell.ident, y = MeanScore, fill = ScoreType)) +
+    geom_bar(stat="identity", position="dodge") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle=45, hjust=1)) +
+    ylab("Average module score") +
+    xlab("Cluster")
+
+#Cell communication style by select cell type
+# Pick the identities you care about
+selected_idents <- c("Notochordal","Transitional Nucleus Pulposus","Nucleus Pulposus")
+
+scores <- FetchData(AllData.int, vars = c("cell.ident",
+                                          "EXOscore1","CONSTscore1","CAVscore1","REGscore1","AltTraffickingScore")) %>%
+    filter(cell.ident %in% selected_idents)
+
+avg_scores <- scores %>%
+    group_by(cell.ident) %>%
+    summarise(across(everything(), mean, na.rm = TRUE), .groups="drop")
+
+avg_scores_long <- pivot_longer(avg_scores, 
+                                cols = -cell.ident,
+                                names_to = "ScoreType",
+                                values_to = "MeanScore")
+
+ggplot(avg_scores_long, aes(x = cell.ident, y = MeanScore, fill = ScoreType)) +
+    geom_bar(stat="identity", position="dodge") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle=45, hjust=1)) +
+    ylab("Average module score") +
+    xlab("Cell identity")
+
+```
+
+```{r}
+NC <- DotPlot(AllData.int, features = c("TBXT","KRT8", "KRT18", "KRT19", "CD24","LGALS3","CAV1","SHH",  "NOTO", "FOXA2","FOXJ1", "CHRD","NOG")) + 
+  scale_color_gradientn(colors = rev(brewer.pal(11, "RdBu"))) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(title = "Notochordal Marker Expression")
+NC
+
+# NP marker plot (bottom)
+NP <- DotPlot(AllData.int, features = c("ACAN", "COL2A1","COL3A1","COL6A1","COL9A1", "COL11A1", "DCN","MGP","COMP","TRPV4","SERPINE2","TIMP1","TIMP3",  "PAX1",   "SOX5", "SOX6")) + 
+  scale_color_gradientn(colors = rev(brewer.pal(11, "RdBu"))) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(title = "NP Marker Expression")
+NP
+
+NC + NP
+
+DotPlot(AllData.int, features = c("PECAM1", "VWF", "CDH5", "KDR", "FLT1", "ENG", "ESAM", "PLVAP", "CD34", "MCAM", "CLDN5", "TEK", "FABP4")) +
+  scale_color_gradientn(colors = rev(brewer.pal(11, "RdBu"))) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Endothelial Cell Marker Expression")
+
+
+
+```

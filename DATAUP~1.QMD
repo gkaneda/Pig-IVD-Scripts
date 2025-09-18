@@ -1,0 +1,188 @@
+---
+title: "Raw File Upload and Processing"
+format: html
+editor: visual
+---
+
+All packages required for script to run.
+
+```{r}
+#| echo: false
+#if (!require("BiocManager", quietly = TRUE))
+#install.packages("BiocManager")
+#BiocManager::install("Seurat", force = TRUE)
+#install.packages("remotes")
+#install.packages("R.utils")
+#remotes::install_github("satijalab/seurat-wrappers")
+#BiocManager::install(c('BiocGenerics', 'DelayedArray', 'DelayedMatrixStats',
+#                       'limma', 'lme4', 'S4Vectors', 'SingleCellExperiment',
+#                       'SummarizedExperiment', 'batchelor', 'HDF5Array',
+#                       'terra', 'ggrastr'))
+#install.packages("devtools")
+#devtools::install_github('cole-trapnell-lab/monocle3')
+#BiocManager::install("EnhancedVolcano", force = TRUE)
+#BiocManager::install("ComplexHeatmap")
+#devtools::install_github("jinworks/CellChat")
+#install.packages("NMF")
+
+  library(Seurat)
+  library(SeuratWrappers)
+  library(patchwork)
+  library(dplyr)
+  library(ggplot2)
+  library(monocle3)
+  library(Matrix)
+  library(EnhancedVolcano)
+  library (ggrepel)
+  library(RColorBrewer)
+  library(ComplexHeatmap)
+  library(CellChat)
+  library(NMF)
+  library(ggalluvial)
+  library(reticulate)
+
+#if GK Laptop
+#setwd("C:/Users/gkane/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/Normalization and Batch Correction Optimization")
+
+#if BIRI super computer
+setwd("C:/Users/kanedag/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/2. Data Upload into RStudio and Processing")
+```
+
+Read Raw Data and create seurat object.
+
+```{r Download data and make seurat objects}
+#Pig 22P70 injured
+p70.inj <- Read10X(data.dir = "C:/Users/kanedag/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/1. All Raw Data/22P70_injured")
+p70.inj <- CreateSeuratObject(counts = p70.inj, project = "p70.inj", min.cells = 3, min.features = 200)
+p70.inj
+
+#Pig 22P70 healthy
+p70.ctr <- Read10X(data.dir = "C:/Users/kanedag/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/1. All Raw Data/22P70_healthy")
+p70.ctr <- CreateSeuratObject(counts = p70.ctr, project = "p70.ctr", min.cells = 3, min.features = 200)
+p70.ctr
+
+#Pig 22P70 healthy
+p35.inj <- Read10X(data.dir = "C:/Users/kanedag/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/1. All Raw Data/23P35_injured")
+p35.inj <- CreateSeuratObject(counts = p35.inj, project = "p35.inj", min.cells = 3, min.features = 200)
+p35.inj
+
+#Pig 23P35 healthy
+p35.ctr <- Read10X(data.dir = "C:/Users/kanedag/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/1. All Raw Data/23P35_healthy")
+p35.ctr <- CreateSeuratObject(counts = p35.ctr, project = "p35.ctr", min.cells = 3, min.features = 200)
+p35.ctr
+
+#Pig 23P36 injured
+p36.inj <- Read10X(data.dir = "C:/Users/kanedag/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/1. All Raw Data/23P36_injured")
+p36.inj <- CreateSeuratObject(counts = p36.inj, project = "p36.inj", min.cells = 3, min.features = 200)
+p36.inj
+
+#Pig 23P36 healthy
+p36.ctr <- Read10X(data.dir = "C:/Users/kanedag/Box/Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD/Data/scRNA Seq/RStudio and Seurat Analysis/1.All Raw Data/23P36_healthy")
+p36.ctr <- CreateSeuratObject(counts = p36.ctr, project = "p36.ctr", min.cells = 3, min.features = 200)
+p36.ctr
+```
+
+Calculation of percent mitochondrial genes for each sample and saving as object feature
+
+```{r QC of mitochrondrial genes}
+p70.inj[["percent.mt"]] <- PercentageFeatureSet(p70.inj, pattern = "^MT-")
+p70.ctr[["percent.mt"]] <- PercentageFeatureSet(p70.ctr, pattern = "^MT-")
+p35.inj[["percent.mt"]] <- PercentageFeatureSet(p35.inj, pattern = "^MT-")
+p35.ctr[["percent.mt"]] <- PercentageFeatureSet(p35.ctr, pattern = "^MT-")
+p36.inj[["percent.mt"]] <- PercentageFeatureSet(p36.inj, pattern = "^MT-")
+p36.ctr[["percent.mt"]] <- PercentageFeatureSet(p36.ctr, pattern = "^MT-")
+```
+
+Visualization of QC metrics
+
+```{r Visualization of QC Metrics}
+#p70.inj
+  VlnPlot(p70.inj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+  FeatureScatter(p70.inj, feature1 = "nCount_RNA", feature2 = "percent.mt")
+  FeatureScatter(p70.inj, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+    
+#p70.ctr
+  VlnPlot(p70.ctr, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+  FeatureScatter(p70.ctr, feature1 = "nCount_RNA", feature2 = "percent.mt")
+  FeatureScatter(p70.ctr, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+
+#p35.inj
+  VlnPlot(p35.inj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+  FeatureScatter(p35.inj, feature1 = "nCount_RNA", feature2 = "percent.mt")
+  FeatureScatter(p35.inj, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+
+#p35.ctr
+  VlnPlot(p35.ctr, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+  FeatureScatter(p35.ctr, feature1 = "nCount_RNA", feature2 = "percent.mt")
+  FeatureScatter(p35.ctr, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+
+#p36.inj
+  VlnPlot(p36.inj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+  FeatureScatter(p36.inj, feature1 = "nCount_RNA", feature2 = "percent.mt")
+  FeatureScatter(p36.inj, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+
+#p36.ctr
+  VlnPlot(p36.ctr, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+  FeatureScatter(p36.ctr, feature1 = "nCount_RNA", feature2 = "percent.mt")
+  FeatureScatter(p36.ctr, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+```
+
+QC and normalize data
+
+```{r Additional QC and normalizing data}
+#| echo: false
+p70.inj <- subset(p70.inj, subset = nFeature_RNA > 200 & nFeature_RNA < 8000 & percent.mt < 20)
+p70.inj <- NormalizeData(p70.inj)
+
+p70.ctr <- subset(p70.ctr, subset = nFeature_RNA > 200 & nFeature_RNA < 8000 & percent.mt < 20)
+p70.ctr <- NormalizeData(p70.ctr)
+
+p35.inj <- subset(p35.inj, subset = nFeature_RNA > 200 & nFeature_RNA < 8000 & percent.mt < 20)
+p35.inj <- NormalizeData(p35.inj)
+
+p35.ctr <- subset(p35.ctr, subset = nFeature_RNA > 200 & nFeature_RNA < 8000 & percent.mt < 20)
+p35.ctr <- NormalizeData(p35.ctr)
+
+p36.inj <- subset(p36.inj, subset = nFeature_RNA > 200 & nFeature_RNA < 8000 & percent.mt < 20)
+p36.inj <- NormalizeData(p36.inj)
+
+p36.ctr <- subset(p36.ctr, subset = nFeature_RNA > 200 & nFeature_RNA < 8000 & percent.mt < 20)
+p36.ctr <- NormalizeData(p36.ctr)
+```
+
+Add Disc identity as a factor (Injured or healthy)
+
+```{r Addition of disc status as a meta.data factor}
+p35.ctr@meta.data$disc.ident <- factor('healthy')
+p35.inj@meta.data$disc.ident <- factor('injured')
+p36.ctr@meta.data$disc.ident <- factor('healthy')
+p36.inj@meta.data$disc.ident <- factor('injured')
+p70.ctr@meta.data$disc.ident <- factor('healthy')
+p70.inj@meta.data$disc.ident <- factor('injured')
+```
+
+Combine, normalize, and integrate all discs into 1 object using seurat CCA, running standard visualizing and clustering workflow.
+
+```{R Integration of all discs into one seurat object and clustering}
+#all discs seurat obj integration and normalization
+AllData <- c(p70.ctr, p70.inj,p35.ctr,p35.inj,p36.ctr,p36.inj)
+AllData <- NormalizeData(AllData)
+AllData <- FindVariableFeatures(AllData, selection.method = "vst", nfeatures = 8000)
+
+Allfeatures <- SelectIntegrationFeatures(object.list = AllData)
+#AllData.anchors takes FOREVER to run. Avoid rerunning at all costs. Took 5.5 hrs using imaging core super computer
+AllData.anchors <- FindIntegrationAnchors(object.list = AllData, anchor.features = Allfeatures)
+AllData.int <- IntegrateData(anchorset = AllData.anchors)
+DefaultAssay(AllData.int) <- "integrated"
+
+#Standard visualizing and clustering
+
+AllData.int <- ScaleData(AllData.int, verbose = FALSE)
+AllData.int <- RunPCA(AllData.int, npcs = 15, verbose = FALSE)
+AllData.int <- RunUMAP(AllData.int, reduction = "pca", dims = 1:15)
+AllData.int <- FindNeighbors(AllData.int, reduction = "pca", dims = 1:15)
+AllData.int <- FindClusters(AllData.int, resolution = 0.9)
+DefaultAssay(AllData.int) <- "RNA"
+AllData.int <- JoinLayers(AllData.int)
+
+```

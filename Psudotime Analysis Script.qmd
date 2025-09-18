@@ -1,0 +1,220 @@
+---
+title: "Monocle"
+format: html
+editor: visual
+---
+
+All packages required for script to run.
+
+```{r}
+#| echo: false
+#if (!require("BiocManager", quietly = TRUE))
+#install.packages("BiocManager")
+#BiocManager::install("Seurat", force = TRUE)
+#install.packages("remotes")
+#install.packages("R.utils")
+#remotes::install_github("satijalab/seurat-wrappers")
+#BiocManager::install(c('BiocGenerics', 'DelayedArray', 'DelayedMatrixStats',
+#                       'limma', 'lme4', 'S4Vectors', 'SingleCellExperiment',
+#                       'SummarizedExperiment', 'batchelor', 'HDF5Array',
+#                       'terra', 'ggrastr'))
+#install.packages("devtools")
+#devtools::install_github('cole-trapnell-lab/monocle3')
+
+library(Seurat)
+library(SeuratWrappers)
+library(patchwork)
+library(dplyr)
+library(ggplot2)
+library(monocle3)
+library(Matrix)
+library (ggrepel)
+library(RColorBrewer)
+library(stringr)
+
+
+#if BIRI super computer
+setwd("C:/Users/kanedag/OneDrive - Cedars-Sinai Health System/Sheyn, Dima's files - Box - Sheyn Lab/Projects/Ongoing projects/Porcine IVD model/Data/scRNA Seq/Inj vs ctr Pig Analysis")
+```
+
+```{r}
+cds <- as.cell_data_set(AllData.int)
+cds <- preprocess_cds(cds, num_dim = 100)
+cds <- align_cds(cds, num_dim = 100, alignment_group = "disc.ident")
+cds <- reduce_dimension(cds)
+cds <- cluster_cells(cds = cds , reduction_method = "UMAP")
+
+# find all possible partitions
+#all_partitions <- unique(cds@clusters$UMAP$partitions)
+#all_partitions <- all_partitions[all_partitions != "1"]
+
+# set all partitions to 1
+#cds@clusters$UMAP$partitions[cds@clusters$UMAP$partitions %in% all_partitions] <- "1"
+#Pseudotime trajectory
+    #note: learn graph also takes a hot sec
+    cds <- learn_graph(cds, use_partition = FALSE)
+    
+    get_earliest_principal_node <- function(cds, time_bin="healthy"){
+      cell_ids <- which(colData(cds)[, "disc.ident"] == time_bin)
+      
+      closest_vertex <-
+        cds@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex
+      closest_vertex <- as.matrix(closest_vertex[colnames(cds), ])
+      root_pr_nodes <-
+        igraph::V(principal_graph(cds)[["UMAP"]])$name[as.numeric(names
+                                                                  (which.max(table(closest_vertex[cell_ids,]))))]
+      
+      root_pr_nodes
+    }
+    cds <- order_cells(cds, root_pr_nodes=get_earliest_principal_node(cds))
+    
+    cds.plot <- plot_cells(cds, color_cells_by = "pseudotime", label_cell_groups = FALSE)
+    cds.plot
+ ggsave("pseudotime.png", cds.plot, width = 10, height = 8, dpi = 300)
+    cds.plot <- plot_cells(cds, color_cells_by = "pseudotime", label_cell_groups = FALSE,label_roots = TRUE,label_branch_points = FALSE,label_leaves = FALSE)
+    cds.plot
+ ggsave("pseudotime wo labels.png", cds.plot, width = 10, height = 8, dpi = 300)
+
+    cds.plot <- plot_cells(cds, color_cells_by = "cell.ident", label_cell_groups = FALSE,label_roots = TRUE,label_branch_points = FALSE,label_leaves = FALSE)
+    cds.plot
+ ggsave("cellidents.png", cds.plot, width = 10, height = 8, dpi = 300)
+  
+     cds.plot <- plot_cells(cds, color_cells_by = "seurat_clusters", label_cell_groups = FALSE,label_roots = TRUE,label_branch_points = FALSE,label_leaves = FALSE)
+    cds.plot
+ ggsave("seurat_clusters.png", cds.plot, width = 10, height = 8, dpi = 300)
+
+      cds.plot <- plot_cells(cds, color_cells_by = "cell.state", label_cell_groups = FALSE,label_roots = TRUE,label_branch_points = FALSE,label_leaves = FALSE)
+    cds.plot
+ ggsave("cell.state.png", cds.plot, width = 10, height = 8, dpi = 300)
+  
+plot_cells(cds)
+
+plot_cells(cds, color_cells_by="cell.ident")
+plot_cells(cds, color_cells_by="cell.state")
+```
+
+```{r Plotting select genes on pseudotime graph}
+
+Idents(AllData.int) <- AllData.int$seurat_clusters 
+cds@colData$seurat_clusters <- Idents(AllData.int)
+cds.plot.cluster <- plot_cells(cds, color_cells_by = "seurat_clusters", label_cell_groups = FALSE, label_roots = TRUE,label_branch_points = FALSE,label_leaves = FALSE)
+cds.plot.cluster
+ggsave(filename = "cds_plot_cluster.png", plot = cds.plot.cluster, width = 10, height = 8, dpi = 300) 
+
+plot_cells(cds, color_cells_by = "partition", label_cell_groups = FALSE, label_roots = TRUE,label_branch_points = FALSE,label_leaves = FALSE)
+
+    Idents(AllData.int) <- AllData.int$disc.ident 
+cds@colData$disc.ident <- Idents(AllData.int)
+cds.plot.injVctr <- plot_cells(cds, color_cells_by = "disc.ident", label_cell_groups = FALSE, label_roots = TRUE,label_branch_points = FALSE,label_leaves = FALSE)
+cds.plot.injVctr
+ggsave(filename = "cds_plot_injVctr.png", plot = cds.plot.injVctr, width = 10, height = 8, dpi = 300)
+
+```
+
+Top marker dot plo
+
+```{r Top Markers Dot Plot}
+Idents(AllData.int) <- AllData.int$seurat_clusters
+marker_test_res <- top_markers(cds, group_cells_by="seurat_clusters", 
+                               reference_cells=1000, cores=8)
+top_specific_markers <- marker_test_res %>%
+  filter(fraction_expressing >= 0.25) %>%
+  group_by(cell_group) %>%
+  top_n(3, pseudo_R2)
+top_specific_marker_ids <- unique(top_specific_markers %>% pull(gene_id))
+
+top_specific_marker.int <- plot_genes_by_group(cds,
+                    top_specific_marker_ids,
+                    group_cells_by="seurat_clusters",
+                    ordering_type="maximal_on_diag",
+                    max.size=3)
+top_specific_marker.int
+ggsave(filename = "cds_top3_dotplot.png", plot = top_specific_marker.int, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r}
+if (!"gene_short_name" %in% colnames(rowData(cds))) {
+     # Create a gene_short_name column using row names if it doesn't exist
+     rowData(cds)$gene_short_name <- rownames(rowData(cds))
+     cat("gene_short_name column added to the feature data.\n")
+}
+
+#Plot select genes on pseudotime graph
+genes_of_interest <- c("TBXT", "KRT8", "KRT18","COL1A1", "COL2A1", "PECAM1", "SERPINE2", "MMP13", "MMP16", "TIMP2","ADAMTS5","ADAMTS3","TRPV4")
+gene <- c("POU2F2")
+for (gene in genes_of_interest) {
+    cds.plot <- plot_cells(cds, genes = gene, label_cell_groups = FALSE, label_roots = TRUE, label_branch_points = FALSE, label_leaves = FALSE)
+    print(cds.plot)
+    filename <- paste("cds", gene, "png", sep = ".")
+    ggsave(filename = filename, plot = cds.plot, width = 10, height = 8, dpi = 300) 
+}
+
+gene_of_interest <- "ARG1"
+
+# Plot the gene
+cds.plot <- plot_cells(cds, genes = gene_of_interest, label_cell_groups = FALSE, label_roots = TRUE, label_branch_points = FALSE, label_leaves = FALSE)
+print(cds.plot)
+
+```
+
+Differential gene analysis
+
+```{r DEG analysis}
+# Define genes of interest
+NC_genes <- c("TBXT", "KRT8", "KRT18", "KRT19", "ACAN")
+
+# Dynamically get all cluster labels except "LQ" and "EC"
+included_clusters <- setdiff(unique(colData(cds)$cluster.ident), c("LQ", "EC"))
+
+# Subset CDS by gene and cluster
+NC_lineage_cds <- cds[
+  rowData(cds)$gene_short_name %in% NC_genes,
+  colData(cds)$cluster.ident %in% included_clusters
+]
+
+# Order cells in pseudotime
+NC_lineage_cds <- order_cells(NC_lineage_cds, root_pr_nodes = get_earliest_principal_node(NC_lineage_cds))
+
+# Plot pseudotime expression
+NC.change <- plot_genes_in_pseudotime(NC_lineage_cds, color_cells_by = "cluster.ident")
+
+# Save plot
+ggsave(filename = "NC_Gene_change.jpg", plot = NC.change)
+
+
+# Define gene sets
+NP_genes1 <- c("ACAN", "COL2A1", "MGP", "DCN", "TRPV4", "SEMA3D")
+
+# Include all clusters except LQ and EC
+included_clusters <- setdiff(unique(colData(cds)$cluster.ident), c("LQ", "EC"))
+
+# === NP lineage===
+NP_lineage_cds1 <- cds[
+  rowData(cds)$gene_short_name %in% NP_genes1,
+  colData(cds)$cluster.ident %in% included_clusters
+]
+NP_lineage_cds1 <- order_cells(NP_lineage_cds1, root_pr_nodes = get_earliest_principal_node(NP_lineage_cds1))
+
+NP.change1 <- plot_genes_in_pseudotime(NP_lineage_cds1,
+                                       color_cells_by = "cluster.ident",
+                                       min_expr = 0)
+ggsave(filename = "NP_Gene_change1.jpg", plot = NP.change1)
+
+
+# === cell cycle ===
+prolif.genes <- c("TYMS", "MCM4", "MCM5", "CDK1", "TOP2A", "CENPF")
+
+prolif.cds1 <- cds[
+  rowData(cds)$gene_short_name %in% prolif.genes,
+  colData(cds)$cluster.ident %in% included_clusters
+]
+prolift.cds1 <- order_cells(prolif.cds1, root_pr_nodes = get_earliest_principal_node(prolif.cds1))
+
+NP.change1 <- plot_genes_in_pseudotime(prolif.cds1,
+                                       color_cells_by = "cluster.ident",
+                                       min_expr = 0)
+ggsave(filename = "proliferation_Gene_change.jpg", plot = NP.change1)
+
+
+```
